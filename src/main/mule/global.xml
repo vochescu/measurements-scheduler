@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:twilio-connector="http://www.mulesoft.org/schema/mule/twilio-connector" xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/twilio-connector http://www.mulesoft.org/schema/mule/twilio-connector/current/mule-twilio-connector.xsd">
+	  <http:request-config name="Firebase_HTTP_Request" doc:name="HTTP Request configuration" doc:id="eeeed985-5968-4b13-9539-841394d3ccfb" >
+		<http:request-connection protocol="HTTPS" host="firestore.googleapis.com" />
+	</http:request-config>
+	<twilio-connector:config name="Twilio_Connector_Config" doc:name="Twilio Connector Config" doc:id="88c34849-0e27-461f-a2c1-798558121a64"  property_username="AC37bfacbdd6ab3d8c9601f7fd8804b9b7" property_password="1ae80bbcd822fcfe0250c1acd4f0b0c1"/>
+</mule>

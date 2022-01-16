@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:file="http://www.mulesoft.org/schema/mule/file"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:twilio-connector="http://www.mulesoft.org/schema/mule/twilio-connector"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/twilio-connector http://www.mulesoft.org/schema/mule/twilio-connector/current/mule-twilio-connector.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd">
+	<file:config name="File_Config" doc:name="File Config" doc:id="e673c90a-7dd8-4557-96cb-b8688a809730" />
+	<flow name="alertsFlow" doc:id="0d30e15f-9f51-4dd3-ab19-76bfb33c1d19">
+		 <scheduler doc:name="Scheduler" doc:id="51903e8d-1e3b-439e-baa6-83e097519832">
+			<scheduling-strategy>
+				<fixed-frequency frequency="10" timeUnit="MINUTES" />
+			</scheduling-strategy>
+		</scheduler>
+		<file:read doc:name="Read" doc:id="2d319684-d677-4451-bf2f-e5fd111b6710" config-ref="File_Config" path="/Users/avochescu/Desktop/test.csv" outputMimeType="application/csv; streaming=true; header=true"/>
+		<ee:transform doc:name="Transform Message" doc:id="e441aa1a-1b98-4a43-a6bc-6438a35ccd15" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="Logger" doc:id="f4e6e2c3-d245-47fd-a9f1-6f187005c894" />
+		<error-handler>
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="c97216c1-6924-43fd-8900-a384178950a0" />
+		</error-handler>
+	</flow>
+	<flow name="forEach" doc:id="f4b02af1-b6e4-4ef8-a949-7c98594363f1" >
+		<http:request method="GET" doc:name="get all patients" doc:id="5195698e-1577-4fcd-8d9d-9fe3d9090e90" config-ref="Firebase_HTTP_Request" path="v1/projects/healthconnect-a15f6/databases/(default)/documents/patients/">
+			<http:query-params><![CDATA[#[output application/java
+---
+{
+	"key" : "AIzaSyBbEFH58H6h5v-cDxcFZ_eJLNPRR8zbkhl"
+}]]]></http:query-params>
+		</http:request>
+		<flow-ref doc:name="forEach Reference" doc:id="da1d238d-453e-4f54-9a20-079965865628" name="forEach" />
+		<set-variable value="#[payload.fields.phone.stringValue]" doc:name="Set phone number" doc:id="5f6adc5e-a516-401f-84ec-af72551effb8" variableName="phone" />
+		<set-variable value="#[(payload.fields.heartRates.arrayValue.values default [] filter (value, index) -&gt; (value.mapValue.fields.time.timestampValue &gt; (now() - |P1D|)) default []) filter (value, index) -&gt; ((value.mapValue.fields.value.stringValue default 0) &gt; 180) default []]" doc:name="Set bigValueForHR Variable" doc:id="ce31e149-354c-4a22-809e-f89c3528e31b" variableName="bigValueForHR" />
+		<ee:transform doc:name="set appointment info" doc:id="1c99c732-f7ba-4de1-abb6-6a7138a41e83">
+				<ee:message>
+				</ee:message>
+				<ee:variables>
+					<ee:set-variable variableName="eventToCreate"><![CDATA[%dw 2.0
+output application/json
+---
+{"fields": {
+	"start": {
+	  "stringValue": now()+|P1D|
+	},
+	"doctorUid": {
+	  "stringValue": payload.fields.doctorUid.stringValue
+	},
+	"title": {
+	  "stringValue": "[AUTO] appointment with " ++ payload.fields.lastName.stringValue default "" ++ " " ++ payload.fields.firstName.stringValue default ""
+	}
+	}
+}]]></ee:set-variable>
+				</ee:variables>
+			</ee:transform>
+		<ee:transform doc:name="set sms message" doc:id="17650f14-e708-421e-9797-97ad92dfcc7e">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+var steps = payload.fields.steps.arrayValue.values default [] filter (value, index) -> (value.mapValue.fields.time.timestampValue > (now() - |P1D|)) default []
+var hr = payload.fields.heartRates.arrayValue.values default [] filter (value, index) -> (value.mapValue.fields.time.timestampValue > (now() - |P1D|)) default []
+var cal = payload.fields.burnedCalories.arrayValue.values default [] filter (value, index) -> (value.mapValue.fields.time.timestampValue > (now() - |P1D|)) default []
+---
+{
+	stepsMessage: if(steps == []) "Go do some jogging tomorrow! " else "You did well with your steps today. ",
+	hrMessage: if(hr != []) 
+	if((hr filter (value, index) -> ((value.mapValue.fields.value.stringValue default 0) > 180) default []) != []) "You really pushed your heart limits today. We should have a talk. Please contact me. " else "Your heart look alive. "
+	else "I didn't receive any info about your heart rate today. ",
+	caloriesMessage: if(cal != []) if((cal reduce((item, acc = 0) -> acc + item.mapValue.fields.value.stringValue)default 0)  > 250) "You achieved the 250 burned calories daily goal. " else "You didn't achieve the 250 burned calories daily goal. "
+	else "I didn't receive any info about your burned calories today. ",
+	
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<ee:transform doc:name="set twilio body request" doc:id="40f195a9-ff85-461e-8945-cea7d36d1184">
+			<ee:message>
+			</ee:message>
+			<ee:variables>
+				<ee:set-variable variableName="sms"><![CDATA[%dw 2.0
+output application/java
+---
+{
+From: "+12055128816",
+Body: payload.stepsMessage ++ payload.hrMessage ++ payload.caloriesMessage,
+To: vars.phone default "+40753817819"
+}]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<logger level="INFO" doc:name="Log sms" doc:id="a3055b97-a87e-4f0a-94ca-00d2f1d1bdd2" message="#[payload.sms]" />
+		<twilio-connector:send-message doc:name="Send Message" doc:id="3cde91a5-afd6-48a3-a017-ffb5f5d2c8cf" config-ref="Twilio_Connector_Config" account-sid="AC37bfacbdd6ab3d8c9601f7fd8804b9b7">
+			<twilio-connector:send-message-request-data><![CDATA[#[vars.sms]]]></twilio-connector:send-message-request-data>
+		</twilio-connector:send-message>
+		<choice doc:name="Choice" doc:id="67af7cfb-b114-402b-9f17-59363ff0947c">
+				<when expression="#[vars.bigValueForHR != []]">
+					<logger level="INFO" doc:name="Logger" doc:id="d3fbad8f-bc9c-4979-bf0f-c8975a1303b7" message="POST event: #[vars.eventToCreate]" />
+					<http:request method="POST" doc:name="POST to Firebase" doc:id="18d0060c-4238-4e96-bcc2-45ea5ac1a0af" path="#['v1/projects/healthconnect-a15f6/databases/(default)/documents/events/']" config-ref="Firebase_HTTP_Request">
+			<http:body><![CDATA[#[vars.eventToCreate]]]></http:body>
+				<http:headers><![CDATA[#[output application/java
+---
+{
+	"Content-Type" : "application/json"
+}]]]></http:headers>
+			<http:query-params><![CDATA[#[output application/java
+---
+{
+	"key" : "AIzaSyBbEFH58H6h5v-cDxcFZ_eJLNPRR8zbkhl"
+}]]]></http:query-params>
+		</http:request>
+				</when>
+			</choice>
+		<error-handler >
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="47e0d36a-bd0d-4c4e-a5ed-61295f12caa3" />
+		</error-handler>
+	</flow>
+</mule>
